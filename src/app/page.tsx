@@ -1,4 +1,4 @@
-// src/app/(dashboard)/page.tsx
+// src/app/page.tsx
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -64,7 +64,6 @@ export default function MeetingBookingDashboardPage() {
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [rooms] = useState<RoomOption[]>(INITIAL_ROOMS);
 
-  // ข้อมูลตั้งต้นสำหรับการแสดงผลทันที
   const initialDemoBookings: CalendarBookingItem[] = useMemo(
     () => [
       {
@@ -99,7 +98,6 @@ export default function MeetingBookingDashboardPage() {
     [todayStr]
   );
 
-  // เรียกใช้ Custom Hook สำหรับจัดการข้อมูล Real-time + Toast + แจ้งเตือนก่อนประชุม 15 นาที
   const {
     bookings,
     toasts,
@@ -121,7 +119,6 @@ export default function MeetingBookingDashboardPage() {
   const [selectedSlot, setSelectedSlot] =
     useState<InitialSlotSelection | null>(null);
 
-  // คำนวณสถิติบน Dashboard แบบ Reactive ทันทีที่ `bookings` มีการเปลี่ยนแปลงผ่าน Socket.io
   const dashboardMetrics: DashboardMetrics = useMemo(() => {
     const now = Date.now();
     const activeRooms = rooms.filter((r) => r.isActive);
@@ -187,17 +184,14 @@ export default function MeetingBookingDashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500/30">
-      {/* Ambient Background Glow */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-cyan-500/10 blur-[120px]" />
         <div className="absolute right-0 top-1/4 h-96 w-96 rounded-full bg-violet-600/10 blur-[130px]" />
       </div>
 
-      {/* Floating Toast Pop-up Stack (ขวา-ล่าง) */}
       <RealtimeToastStack toasts={toasts} onDismiss={dismissToast} />
 
       <main className="relative z-10 mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-        {/* Top Navigation Header */}
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-6">
           <div>
             <div className="flex items-center gap-2.5">
@@ -219,7 +213,6 @@ export default function MeetingBookingDashboardPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* ปุ่มเปิด Google Sheet และ Google Drive ของคุณโดยตรง */}
             <a
               href={GOOGLE_WORKSPACE_CONFIG.SPREADSHEET_URL}
               target="_blank"
@@ -238,7 +231,6 @@ export default function MeetingBookingDashboardPage() {
               <FolderKanban className="h-4 w-4" /> โฟลเดอร์ Google Drive
             </a>
 
-            {/* In-app Notification Bell Dropdown */}
             <NotificationBellDropdown
               notifications={notifications}
               unreadCount={unreadCount}
@@ -264,10 +256,8 @@ export default function MeetingBookingDashboardPage() {
           </div>
         </header>
 
-        {/* 1. Dashboard Overview */}
         <DashboardOverview metrics={dashboardMetrics} />
 
-        {/* 2. Interactive Room Timeline Calendar */}
         <RoomTimelineCalendar
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
@@ -276,7 +266,6 @@ export default function MeetingBookingDashboardPage() {
           onSelectEmptySlot={handleSelectEmptySlot}
         />
 
-        {/* 3. Quick Booking Modal */}
         <BookingModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}

@@ -8,7 +8,6 @@ const nextConfig = {
   reactStrictMode: true,
   output: isGithubActions ? 'export' : undefined,
   basePath: isGithubActions && repoName ? `/${repoName}` : '',
-  assetPrefix: isGithubActions && repoName ? `/${repoName}/` : undefined,
   images: {
     unoptimized: true,
   },

@@ -1,5 +1,5 @@
 // deploy-github.mjs
-// สคริปต์อัปโหลดโปรเจกต์ขึ้น GitHub และเปิดใช้งาน GitHub Pages อัตโนมัติ (ไม่ต้องง้อ git.exe)
+// สคริปต์อัปโหลดโปรเจกต์ขึ้น GitHub ด้วย Single Atomic Commit และเปิดใช้งาน GitHub Pages
 
 import fs from 'fs';
 import path from 'path';
@@ -28,7 +28,8 @@ function collectFiles(dir, baseDir = dir) {
       entry.name === '.next' ||
       entry.name === 'out' ||
       entry.name === '.git' ||
-      entry.name === 'package-lock.json'
+      entry.name === 'package-lock.json' ||
+      entry.name === '(dashboard)'
     ) {
       continue;
     }
@@ -44,129 +45,67 @@ function collectFiles(dir, baseDir = dir) {
 }
 
 async function main() {
-  console.log('====================================================');
-  console.log('🚀 ระบบอัปโหลดและโฮสต์เว็บขึ้น GitHub Pages อัตโนมัติ');
-  console.log('====================================================\n');
-
-  // 1. ตรวจสอบการล็อกอิน GitHub
   let username = '';
   try {
-    const userJson = runGh(['api', '/user']);
-    username = JSON.parse(userJson).login;
-    console.log(`✅ ล็อกอินบัญชี GitHub เรียบร้อยในชื่อ: ${username}`);
+    username = JSON.parse(runGh(['api', '/user'])).login;
   } catch {
-    console.log('🔐 กรุณาล็อกอินเข้าสู่ระบบ GitHub ในเบราว์เซอร์...');
     spawnSync(
       GH_PATH,
       ['auth', 'login', '--web', '-p', 'https', '-s', 'repo,workflow'],
       { stdio: 'inherit' }
     );
-    const userJson = runGh(['api', '/user']);
-    username = JSON.parse(userJson).login;
-    console.log(`✅ ล็อกอินสำเร็จในชื่อ: ${username}`);
+    username = JSON.parse(runGh(['api', '/user'])).login;
   }
 
-  // 2. สร้าง Repository บน GitHub (ถ้ายังไม่มี)
-  console.log(`\n📦 กำลังเตรียม Repository "${username}/${REPO_NAME}"...`);
-  try {
-    runGh(['api', `/repos/${username}/${REPO_NAME}`]);
-    console.log('   -> พบ Repository เดิมอยู่แล้ว');
-  } catch {
+  // ดึง SHA ล่าสุดของ branch main
+  const refData = JSON.parse(
+    runGh(['api', `/repos/${username}/${REPO_NAME}/git/ref/heads/main`])
+  );
+  const latestCommitSha = refData.object.sha;
+
+  // สร้าง Tree เดียวที่มีทุกไฟล์ (Single Atomic Commit)
+  const files = collectFiles(process.cwd());
+  const treeItems = files.map((file) => ({
+    path: file.relPath,
+    mode: '100644',
+    type: 'blob',
+    content: fs.readFileSync(file.fullPath, 'utf-8'),
+  }));
+
+  const newTree = JSON.parse(
     runGh(
-      ['api', '-X', 'POST', '/user/repos', '--input', '-'],
+      ['api', '-X', 'POST', `/repos/${username}/${REPO_NAME}/git/trees`, '--input', '-'],
+      JSON.stringify({ tree: treeItems })
+    )
+  );
+
+  const newCommit = JSON.parse(
+    runGh(
+      ['api', '-X', 'POST', `/repos/${username}/${REPO_NAME}/git/commits`, '--input', '-'],
       JSON.stringify({
-        name: REPO_NAME,
-        description: 'Smart Meeting Room Booking System (Next.js + Tailwind + Google Sheets Sync)',
-        private: false,
-        auto_init: true,
+        message: 'Deploy full styled Next.js build to GitHub Pages',
+        tree: newTree.sha,
+        parents: [latestCommitSha],
       })
-    );
-    console.log('   -> สร้าง Repository ใหม่พร้อมเริ่มต้น branch main สำเร็จ!');
-    await new Promise((r) => setTimeout(r, 2500));
-  }
+    )
+  );
 
-  // 3. อัปโหลดไฟล์ทั้งหมดในโปรเจกต์ขึ้น GitHub (เอาไฟล์ workflow ไว้ท้ายสุดเพื่อให้บิลด์เมื่อไฟล์ครบแล้ว)
-  const files = collectFiles(process.cwd()).sort((a, b) => {
-    if (a.relPath.startsWith('.github/')) return 1;
-    if (b.relPath.startsWith('.github/')) return -1;
-    return a.relPath.localeCompare(b.relPath);
-  });
-  console.log(`\n☁️  กำลังอัปโหลดไฟล์โค้ดทั้งหมด (${files.length} ไฟล์) ขึ้น GitHub...`);
-
-  for (const file of files) {
-    const contentBase64 = fs.readFileSync(file.fullPath).toString('base64');
-    let existingSha = undefined;
-
-    try {
-      const existing = JSON.parse(
-        runGh(['api', `/repos/${username}/${REPO_NAME}/contents/${file.relPath}`])
-      );
-      existingSha = existing.sha;
-    } catch {
-      // ไฟล์ใหม่
-    }
-
-    const payload = {
-      message: `Deploy ${file.relPath}`,
-      content: contentBase64,
-      ...(existingSha ? { sha: existingSha } : {}),
-    };
-
-    runGh(
-      [
-        'api',
-        '-X',
-        'PUT',
-        `/repos/${username}/${REPO_NAME}/contents/${file.relPath}`,
-        '--input',
-        '-',
-      ],
-      JSON.stringify(payload)
-    );
-    console.log(`   ✔ อัปโหลดแล้ว: ${file.relPath}`);
-  }
-
-  // 4. เปิดใช้งาน GitHub Pages ให้รันผ่าน GitHub Actions
-  console.log('\n🌐 กำลังเปิดใช้งาน GitHub Pages Hosting...');
-  try {
-    runGh(
-      ['api', '-X', 'POST', `/repos/${username}/${REPO_NAME}/pages`, '--input', '-'],
-      JSON.stringify({ build_type: 'workflow' })
-    );
-  } catch {
-    try {
-      runGh(
-        ['api', '-X', 'PUT', `/repos/${username}/${REPO_NAME}/pages`, '--input', '-'],
-        JSON.stringify({ build_type: 'workflow' })
-      );
-    } catch {
-      // เปิดอยู่แล้ว
-    }
-  }
-
-  // สั่ง Trigger GitHub Actions Workflow ทันที
-  try {
-    runGh([
+  runGh(
+    [
       'api',
       '-X',
-      'POST',
-      `/repos/${username}/${REPO_NAME}/actions/workflows/deploy.yml/dispatches`,
+      'PATCH',
+      `/repos/${username}/${REPO_NAME}/git/refs/heads/main`,
       '--input',
       '-',
-    ], JSON.stringify({ ref: 'main' }));
-  } catch {
-    // Workflow ถูก Trigger อัตโนมัติจากตอน Push แล้ว
-  }
+    ],
+    JSON.stringify({ sha: newCommit.sha, force: true })
+  );
 
-  console.log('\n====================================================');
-  console.log('🎉 อัปโหลดและสั่ง Deploy ขึ้น GitHub Pages สำเร็จเรียบร้อย!');
-  console.log(`🔗 โค้ดบน GitHub: https://github.com/${username}/${REPO_NAME}`);
-  console.log(`🌍 ลิงก์หน้าเว็บของคุณ: https://${username}.github.io/${REPO_NAME}/`);
-  console.log('   (รอ GitHub Actions บิลด์ประมาณ 1-2 นาที เว็บจะออนไลน์ทันที)');
-  console.log('====================================================');
+  console.log(`✅ Pushed single atomic commit: ${newCommit.sha}`);
 }
 
 main().catch((err) => {
-  console.error('❌ เกิดข้อผิดพลาด:', err.message);
+  console.error('❌ Error:', err.message);
   process.exit(1);
 });
