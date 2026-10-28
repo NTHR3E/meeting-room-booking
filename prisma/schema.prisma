@@ -1,0 +1,108 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum NotificationType {
+  BOOKING_CREATED
+  BOOKING_CANCELLED
+  MEETING_REMINDER
+}
+
+// 1. ตารางผู้ใช้งาน (Users)
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String
+  department    String?
+  avatarUrl     String?
+  role          Role           @default(USER)
+  
+  bookings      Booking[]
+  notifications Notification[]
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+// 2. ตารางห้องประชุม (Rooms)
+model Room {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  capacity    Int       // ความจุจำนวนคนสูงสุด
+  floor       String    // ชั้นที่ตั้งห้องประชุม
+  building    String?   // อาคาร
+  amenities   String[]  // อุปกรณ์ในห้อง เช่น ["Projector", "Video Conference", "Whiteboard"]
+  colorCode   String    @default("#3B82F6") // สีแสดงใน Calendar
+  isActive    Boolean   @default(true)      // สถานะเปิดใช้งานห้อง
+
+  bookings    Booking[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([isActive])
+}
+
+// 3. ตารางการจองห้องประชุม (Bookings)
+model Booking {
+  id            String        @id @default(cuid())
+  title         String        // หัวข้อการประชุม
+  description   String?       // รายละเอียดเพิ่มเติม
+  startTime     DateTime      @db.Timestamptz(3) // เวลาเริ่ม (เก็บพร้อม Timezone)
+  endTime       DateTime      @db.Timestamptz(3) // เวลาสิ้นสุด (เก็บพร้อม Timezone)
+  status        BookingStatus @default(CONFIRMED)
+  attendeeCount Int           @default(1)
+  reminderSent  Boolean       @default(false)    // เช็กว่าส่งแจ้งเตือนก่อนเริ่มประชุมหรือยัง
+
+  // Relations
+  roomId        String
+  room          Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  notifications Notification[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Composite Index สำคัญมากสำหรับการทำ Overlap Check และดึงข้อมูล Calendar
+  @@index([roomId, status, startTime, endTime])
+  @@index([startTime, endTime])
+  @@index([userId])
+}
+
+// 4. ตารางการแจ้งเตือน (Notifications)
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType
+  message   String
+  isRead    Boolean          @default(false)
+
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  bookingId String?
+  booking   Booking?         @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead, createdAt])
+}
